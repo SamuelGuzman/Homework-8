@@ -1,0 +1,553 @@
+---
+title: "Homework_9_Markdown"
+author: "Samuel Guzman"
+date: "11/29/2020"
+output: html_document
+---
+
+1. Comparing Means
+
+To start with, let’s warm up with a simple one-way ANOVA model. This example, from Whitlock and Schluter chapter 15 question 22 looks at the mass of lodgepole pinecones from different habitats.
+
+1.1. Load and plot the data. Choose a plot that not only shows the raw data, but also the means and SE or CI of those means. +1 EC if Michael thinks it’s fancy.
+
+```{r}
+
+# Load the data
+
+pinecones <- read.csv("15q22LodgepolePineCones.csv")
+
+# Because the question asks for means and "SE or CI", I decided not to use geom boxplot
+# Calculate means and confidence intervals ####
+
+# Filter to the habitats that I want
+
+library(dplyr)
+pinecones_island.absent <- pinecones %>%
+filter(habitat == "island.absent")
+
+pinecones_island.present <- pinecones %>%
+filter(habitat == "island.present")
+
+pinecones_mainland.present <- pinecones %>%
+filter(habitat == "mainland.present")
+
+# Begin calculating the mean and CI's and putting them in vector format
+
+habitat_vec <- c("island.absent", "island.present", "mainland.present")
+mean_vec <- c(mean(pinecones_island.absent$conemass), 
+              mean(pinecones_island.present$conemass),
+              mean(pinecones_mainland.present$conemass))
+
+# A function to get CI
+
+get_CI <- function(data_for_CI){
+  out <- t.test(data_for_CI)$conf.int
+  return(out)
+}
+
+# Upper and lower values can be extracted with "[1]" and "[2]"
+
+# Run the function for each habitat and create upper and lower CI vecs
+
+pinecones_island.absent_CI <- get_CI(pinecones_island.absent$conemass)
+pinecones_island.present_CI <- get_CI(pinecones_island.present$conemass)
+pinecones_mainland.present_CI <- get_CI(pinecones_mainland.present$conemass)
+
+CI_upper_vec <- c(pinecones_island.absent_CI[2],
+                  pinecones_island.present_CI[2], 
+                  pinecones_mainland.present_CI[2])
+
+CI_lower_vec <- c(pinecones_island.absent_CI[1],
+                  pinecones_island.present_CI[1], 
+                  pinecones_mainland.present_CI[1])
+
+# Compile everything together in a data frame
+
+mean_and_CI_df <- data.frame(habitat = habitat_vec,
+                             mean = mean_vec,
+                             CI_upper = CI_upper_vec,
+                             CI_lower = CI_lower_vec)
+
+# Plot the data ####
+
+library(ggplot2)
+pen_plot_base_Q1 <- ggplot(data = pinecones,
+                        mapping = aes(x = habitat,
+                                      y = conemass))
+
+pen_plot_base_Q1 +
+  geom_point(data = mean_and_CI_df, aes(x = habitat, y = mean), size = 5, color = "red") + # Draw mean points
+  geom_point(data = mean_and_CI_df, aes(x = habitat, y = CI_upper), size = 5, color = "purple") + # Draw CI_upper points
+  geom_point(data = mean_and_CI_df, aes(x = habitat, y = CI_lower), size = 5, color = "purple") + # Draw CI_lower points
+  geom_point(size = 3, color = "Black") # The original data
+
+```
+
+1.2 Fit a model using least squares and evaluate all relevant assumptions. List them out as you test them. Can we use this model? If not, fix it. But if we can, no fix is needed!
+
+```{r}
+
+# Libraries
+
+library(car)
+library(tidyverse)
+library(ggplot2)
+library(emmeans)
+
+# The function lm() fits the relationship using least squares
+pinecones_lm <- lm(data = pinecones, conemass~habitat)
+
+# Similar code as in https://biol607.github.io/lab/10_anova.html
+
+par(mfrow=c(2,2))
+plot(pinecones_lm, which=c(1,2,5))
+par(mfrow=c(1,1))
+
+# All graphs appear similar to the ones on https://biol607.github.io/lab/10_anova.html
+# I assume this means that assumptions are met.
+
+library(car)
+residualPlots(pinecones_lm)
+
+# For me, it says "No possible lack-of-fit tests"
+# I don't know what this means
+
+# However, the Fitted values versus Pearson residuals looks similar to the one on the webpage
+# I assume the assumption is met
+
+# I'm not sure if the following is needed. It is not on the webpage, but I included it earlier in my midterm for least squares.
+
+# Hist of residuals
+hist(residuals(pinecones_lm))
+
+# It is not as normal as I would like it to be. Perhaps this assumption is not met.
+
+
+```
+
+1.3 How much variation is explained by your model?
+
+To see how much variation is explained by the model, one can examine the R^2.
+
+```{r}
+
+# Fitting without an intercept
+pinecones_lm_no_int <- update(pinecones_lm, formula = . ~ . -1)
+summary(pinecones_lm_no_int)
+
+# The R-squared is 0.9945. This suggests a very high percentage (99%) is explained by the model.
+
+```
+
+1.4 Show which means are different from each other. Are you correcting p-values? If so, how, and justify your choice.
+
+```{r}
+
+# It is possible that mainland is the control
+# A Dunnet test is well-suited for this
+
+pinecones_em <- emmeans(pinecones_lm, ~habitat)
+
+contrast(pinecones_em,
+        method = "dunnett",
+        ref = 3) # Set mainland as control
+
+# I'm assuming that the estimate column shows the means
+# The two means are different from eachother (difference 2.82)
+
+# I'm assuming that "correcting p-values" refers to the P value adjustment
+# The correction is through dunnet test.
+
+# I chose this, because I thought that mainland was the control and island absent and island present are a manipulated variable. 
+
+
+```
+
+
+2. Comparing Means from Multiple Categories
+
+In a study from Rogers et al. (2020) link, the authors performed an experiment where they moved panels that had been colonized by invertebrates on a dock to a nearby rocky jetty where predators could access panels. To separate out the effects of changes in abiotic environment versus predation, they performed a factorial experiment, either caging or not caging panels and placing them either on the side of a cinder block or hanging on a piece of PVC attached to the block where predators would have little access (but weren’t entirely stopped). They then looked at change in total cover of invertebrates. Using this old data file dug off of my hard drive, let’s see what they found.
+
+2.1. Load and plot the data. We are interested in change in percent cover. Choose a plot that not only shows the raw data, but also the means and SE or CI of those means. +1 EC if Michael thinks it’s fancy.
+
+```{r}
+
+# Load the data
+
+transplant <- read.csv("fouling_transplant_data.csv")
+
+# Relevant columns
+
+transplant_rel <- transplant[,c(1,2,3,16)]
+
+# Because the question asks for means and "SE or CI", I decided not to use geom boxplot
+# First, I will use Treatment as the X axis, as opposed to Caged or Position.On.Block
+# Calculate means and confidence intervals ####
+
+# Filter to the Treatments that I want
+
+transplant_rel_DJHC <- transplant_rel %>%
+filter(Treatment == "DJHC")
+
+transplant_rel_DJHO <- transplant_rel %>%
+filter(Treatment == "DJHO")
+
+transplant_rel_DJSC <- transplant_rel %>%
+filter(Treatment == "DJSC")
+
+transplant_rel_DJSO <- transplant_rel %>%
+filter(Treatment == "DJSO")
+
+# Begin calculating the mean and CI's and putting them in vector format
+
+Treatment_vec <- c("DJHC", "DJHO", "DJSC", "DJSO")
+mean_vec <- c(mean(transplant_rel_DJHC$Change.in.Cover), 
+              mean(transplant_rel_DJHO$Change.in.Cover),
+              mean(transplant_rel_DJSC$Change.in.Cover),
+              mean(transplant_rel_DJSO$Change.in.Cover))
+
+# A function to get CI
+
+get_CI <- function(data_for_CI){
+  out <- t.test(data_for_CI)$conf.int
+  return(out)
+}
+
+# Upper and lower values can be extracted with "[1]" and "[2]"
+
+# Run the function for each Treatment and create upper and lower CI vecs
+
+transplant_rel_DJHC_CI <- get_CI(transplant_rel_DJHC$Change.in.Cover)
+transplant_rel_DJHO_CI <- get_CI(transplant_rel_DJHO$Change.in.Cover)
+transplant_rel_DJSC_CI <- get_CI(transplant_rel_DJSC$Change.in.Cover)
+transplant_rel_DJSO_CI <- get_CI(transplant_rel_DJSO$Change.in.Cover)
+
+CI_upper_vec <- c(transplant_rel_DJHC_CI[2],
+                  transplant_rel_DJHO_CI[2], 
+                  transplant_rel_DJSC_CI[2],
+                  transplant_rel_DJSO_CI[2])
+
+CI_lower_vec <- c(transplant_rel_DJHC_CI[1],
+                  transplant_rel_DJHO_CI[1], 
+                  transplant_rel_DJSC_CI[1],
+                  transplant_rel_DJSO_CI[1])
+
+# Compile everything together in a data frame
+
+mean_and_CI_df <- data.frame(Treatment = Treatment_vec,
+                             mean = mean_vec,
+                             CI_upper = CI_upper_vec,
+                             CI_lower = CI_lower_vec)
+
+# Plot the data ####
+
+pen_plot_base_Q2 <- ggplot(data = transplant_rel,
+                        mapping = aes(x = Treatment,
+                                      y = Change.in.Cover))
+
+pen_plot_base_Q2 +
+  geom_point(data = mean_and_CI_df, aes(x = Treatment, y = mean), size = 5, color = "red") + # Draw mean points
+  geom_point(data = mean_and_CI_df, aes(x = Treatment, y = CI_upper), size = 5, color = "purple") + # Draw CI_upper points
+  geom_point(data = mean_and_CI_df, aes(x = Treatment, y = CI_lower), size = 5, color = "purple") + # Draw CI_lower points
+  geom_point(size = 3, color = "Black") # The original data
+
+```
+
+2.2 Fit a model using likelihood and evaluate all relevant assumptions. Do you meet assumptions?
+
+```{r}
+
+# Likelihood fit
+transplant_mle <- glm(Change.in.Cover ~ Treatment + Caged + Position.On.Block,
+                      family = gaussian(link = "identity"),
+                      data = transplant_rel)
+
+# Evaluate assumptions ####
+# Similar code as: https://biol607.github.io/lab/11_anova.html
+
+par(mfrow=c(2,2))
+plot(transplant_mle, which=c(1,2,5))
+par(mfrow=c(1,1))
+
+# All graphs appear similar to the ones on https://biol607.github.io/lab/11_anova.html
+# I assume this means that assumptions are met.
+
+residualPlots(transplant_mle)
+
+# The curve is not quite the same as the one on the page
+# Also the data points are all stacked vertically, unlike the ones on the page
+# I am not sure if I did this incorrectly or if the assumption is not met.
+
+# It is not the case that all assumptions are met if the residualPlots(transplant_mle) chart does not meet the assumption. The rest of the assumption are met.
+
+
+```
+
+
+2.3 If you answered yes to the above…. you are wrong. It doesn’t! Percentage data is weird. Difference in percentages can be ever weirder! There are three tried and true solutions here. But they MIGHT not all work.
+
+    Incorporate initial cover as a covariate. This takes out that influence, and as such we’re looking at residuals of change. This sometimes, but not always, works.
+    
+```{r}
+
+# According to this forum post, a covariate is simply added in the same manner the other terms are
+# So, I added Initial.Cover
+
+# Likelihood fit
+transplant_mle <- glm(Change.in.Cover ~ Treatment + Caged + Position.On.Block + Initial.Cover,
+                      family = gaussian(link = "identity"),
+                      data = transplant)
+
+# Evaluate assumptions ####
+# Similar code as: https://biol607.github.io/lab/11_anova.html
+
+par(mfrow=c(2,2))
+plot(transplant_mle, which=c(1,2,5))
+par(mfrow=c(1,1))
+
+# The first two graphs appear similar to the ones on https://biol607.github.io/lab/11_anova.html
+# The residuals versus leverage plot is different. This may mean the assumption is not met.
+
+residualPlots(transplant_mle)
+
+# The curve is similar to the one on the page. 
+# Further, the data points are no longer stacked vertically as occurred earlier. 
+# This may have resolved an issue.
+# This assumption is met
+
+# The assumption may not be met in the plot(transplant_mle, which=c(1,2,5))
+# The assumption is met in the residualPlots(transplant_mle)
+
+
+
+```
+
+    Divide change by initial cover to express change as percent change relative to initial cover.
+  
+```{r}
+
+# According to this forum post, a covariate is simply added in the same manner the other terms are
+# So, I added Initial.Cover
+
+# Likelihood fit
+transplant_mle <- glm((Change.in.Cover/Initial.Cover) ~ Treatment + Caged + Position.On.Block,
+                      family = gaussian(link = "identity"),
+                      data = transplant)
+
+# Evaluate assumptions ####
+# Similar code as: https://biol607.github.io/lab/11_anova.html
+
+par(mfrow=c(2,2))
+plot(transplant_mle, which=c(1,2,5))
+par(mfrow=c(1,1))
+
+# The first graph is different from the one on https://biol607.github.io/lab/11_anova.html
+# Because, the data points are stacked in that graph
+# The Q-Q plot is similar
+
+residualPlots(transplant_mle)
+
+# There is now sort of a u shaped curve like on the website
+# However, the data points are stacked vertically again
+# This assumption is not met due to the stacking issue
+
+# Assumptions are not met
+
+```
+  
+    Calculate difference in logit cover (so, logist(initial cover) - logit(final cover)). Logit transformations linearize percent cover data, and are often all that is needed to work percent cover into a linear model. You can use car::logit() for this.
+    
+```{r}
+
+library(car)
+
+transplant_mle <- glm((logit(Initial.Cover) - logit(Final.Cover)) ~ Treatment + Caged + Position.On.Block,
+                      family = gaussian(link = "identity"),
+                      data = transplant)
+
+# Evaluate assumptions ####
+# Similar code as: https://biol607.github.io/lab/11_anova.html
+
+par(mfrow=c(2,2))
+plot(transplant_mle, which=c(1,2,5))
+par(mfrow=c(1,1))
+
+# The first graph is different from the one on https://biol607.github.io/lab/11_anova.html
+# Because, the data points are stacked in that graph
+# The Q-Q plot is similar
+
+residualPlots(transplant_mle)
+
+# This graph is not similar due to the curve and also the data is stacked again
+
+# Assumptions are not met
+
+
+```
+    
+
+Try all three methods. Which one works so that you can produce valid inference?
+
+I think the one "Incorporate initial cover as a covariate" works best, because it is possible all assumptions are met.
+
+2.4 Great! So, take us home! Using NHST with an alpha of 0.08 (why not), what does this fit model tell you about whether predation matters given how I have described the system? Feel free to replot the data or fit model results if helpful
+
+```{r}
+
+
+
+```
+
+
+3. Comparing Means with Covariates
+
+We will wrap up with a model mixing continuous and discrete variables. In this dataset from Scantlebury et al, the authors explored how caste and mass affected the energy level of naked mole rats.
+
+3.1 OK, you know what you are about at this point. Load in the data, plot it, fit it, check assumptions. Use Bayes for this.
+
+```{r}
+
+# Load the data and plot it ------------------------------------------------
+
+# Load the data
+
+molerat <- read.csv("18e4MoleRatLayabouts.csv")
+
+# Filter to the castes that I want
+
+library(dplyr)
+molerat_worker <- molerat %>%
+filter(caste == "worker")
+
+molerat_lazy <- molerat %>%
+filter(caste == "lazy")
+
+# Begin calculating the mean and CI's and putting them in vector format
+# I'm assuming that lnenergy is the dependent variable
+
+caste_vec <- c("worker", "lazy")
+mean_vec <- c(mean(molerat_worker$lnenergy), 
+              mean(molerat_lazy$lnenergy))
+
+# A function to get CI
+
+get_CI <- function(data_for_CI){
+  out <- t.test(data_for_CI)$conf.int
+  return(out)
+}
+
+# Upper and lower values can be extracted with "[1]" and "[2]"
+
+# Run the function for each caste and create upper and lower CI vecs
+
+molerat_worker_CI <- get_CI(molerat_worker$lnenergy)
+molerat_lazy_CI <- get_CI(molerat_lazy$lnenergy)
+
+CI_upper_vec <- c(molerat_worker_CI[2],
+                  molerat_lazy_CI[2])
+
+CI_lower_vec <- c(molerat_worker_CI[1],
+                  molerat_lazy_CI[1])
+
+# Compile everything together in a data frame
+
+mean_and_CI_df <- data.frame(caste = caste_vec,
+                             mean = mean_vec,
+                             CI_upper = CI_upper_vec,
+                             CI_lower = CI_lower_vec)
+
+# Plot the data ####
+
+pen_plot_base_Q3 <- ggplot(data = molerat,
+                        mapping = aes(x = caste,
+                                      y = lnenergy))
+
+pen_plot_base_Q3 +
+  geom_point(data = mean_and_CI_df, aes(x = caste, y = mean), size = 5, color = "red") + # Draw mean points
+  geom_point(data = mean_and_CI_df, aes(x = caste, y = CI_upper), size = 5, color = "purple") + # Draw CI_upper points
+  geom_point(data = mean_and_CI_df, aes(x = caste, y = CI_lower), size = 5, color = "purple") + # Draw CI_lower points
+  geom_point(size = 3, color = "Black") # The original data
+
+# Fit it and check assumptions ---------------------------------------------
+
+# Bayesian fit
+library(brms)
+molerat_lm_bayes <- brm(lnenergy ~ caste,
+                        data = molerat,
+                        family=gaussian(link = "identity"), 
+                        file = "./brms_fits/morphology_lm_bayes",
+                        chains = 3)
+
+# Evaluate assumptions ####
+# Similar code as: https://biol607.github.io/lab/11_anova.html
+
+par(mfrow=c(2,2))
+plot(molerat_lm_bayes, which=c(1,2,5))
+par(mfrow=c(1,1))
+
+# Assumptions are met
+
+```
+
+3.2 Examine whether there is an interaction or not using LOO cross-validation. Is a model with an interaction more predictive?
+
+```{r}
+# Without an interaction
+
+molerat_lm_bayes_wo_int <- brm(lnenergy ~ lnmass + caste,
+                           data = molerat,
+                           family=gaussian(link = "identity"), 
+                           file = "./brms_fits/morphology_lm_bayes",
+                           chains = 3)
+
+# With an interaction
+
+molerat_lm_bayes_w_int <- brm(lnenergy ~ lnmass*caste,
+                               data = molerat,
+                               family=gaussian(link = "identity"), 
+                               file = "./brms_fits/morphology_lm_bayes",
+                               chains = 3)
+
+# LOO cross-validation using loo_compare()
+library(loo)
+loo_compare(loo(molerat_lm_bayes_wo_int),loo(molerat_lm_bayes_w_int))
+
+# The answers are the same
+# A model with an interaction is not any more predictive than one without.
+
+```
+
+3.3 Compare the two castes energy expendeture at the meanlevel of log mass. Are they different? How would you discuss your conclusions.
+
+```{r}
+
+# I assume that log mass refers to the column lnmass
+# I assume the question is seeking the mean of the castes in this column
+
+# Above I filtered to the relevant castes. They are molerat_worker and molerat_lazy
+
+# mean of worker caste lnmass
+mean(molerat_worker$lnmass)
+
+# mean of lazy caste lnmass
+mean(molerat_lazy$lnmass)
+
+# They differ by a small amount. The lazy caste lnmass mean is greater by 0.540267 (4.864253 - 4.323986). On average, the lazy caste has slightly greater energy expendeture. 
+
+```
+
+3.4 Plot the fit model. Use tidybayes and ggdist with your model to show fit and credible intervals with the raw data points on top. modelr::data.grid() might help as well.
+
+```{r}
+
+library(tidybayes)
+library(ggdist)
+
+pen_plot_base_Q3B<- ggplot(data = molerat,
+                           mapping = aes(x = caste,
+                                         y = lnmass))
+pen_plot_base_Q3B +
+  geom_point(size = 3, color = "Black")
+
+```
